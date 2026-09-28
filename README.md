@@ -12,6 +12,12 @@
 <p align="center"><b>mdzy</b> = <b>MD easy</b>: a tiny, instant Markdown &amp; text viewer for Windows.<br>
 One ~240 KB exe, pure C/Win32, no dependencies. Current release: <b>1.1.0</b>.</p>
 
+<p align="center">
+  <a href="https://github.com/vladcherry/mdzy/releases/latest/download/mdzy.exe"><b>⬇ Download mdzy.exe</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/vladcherry/mdzy/releases/latest">Latest release</a>
+</p>
+
 ![mdzy screenshot](docs/screenshot.png)
 
 ## Features
