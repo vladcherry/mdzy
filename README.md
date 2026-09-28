@@ -9,7 +9,8 @@
 
 <h1 align="center">mdzy</h1>
 
-<p align="center">A tiny, instant Markdown &amp; text viewer for Windows. One ~240 KB exe, pure C/Win32, no dependencies.</p>
+<p align="center"><b>mdzy</b> = <b>MD easy</b>: a tiny, instant Markdown &amp; text viewer for Windows.<br>
+One ~240 KB exe, pure C/Win32, no dependencies. Current release: <b>1.1.0</b>.</p>
 
 ![mdzy screenshot](docs/screenshot.png)
 
@@ -49,7 +50,8 @@ Arrow keys, `Space`, `PgUp`/`PgDn`, `Home`/`End` scroll. Right-click opens the m
 
 ## File associations
 
-Right-click > **File associations > Register**, or run:
+Click the **Open .md files with mdzy** button at the top of this README or on mdzy's help page (`F1`),
+use right-click > **File associations > Register**, or run:
 
 ```
 mdzy.exe --register
@@ -82,7 +84,8 @@ With mingw-w64 (Linux cross-compile or an MSYS2 MinGW64 shell):
 
 The output is `build\mdzy.exe`. `build.bat dev` builds a developer version with extra flags for automated
 screenshots and tests (`--shot`, `--linktest`, `--bench`, `--rtf`).
-`src/gen_icon.py` (requires Pillow) regenerates the icon.
+`src/gen_icon.py` (requires Pillow) regenerates the icon. The release number lives in `src/version.h`
+and shows up in the window title, on the help page and in the exe's file properties.
 
 ## How it works
 

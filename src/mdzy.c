@@ -44,7 +44,8 @@
 #pragma comment(lib, "uuid.lib")
 
 #define APP_NAME     L"mdzy"
-#define APP_VERSION  L"1.0.0"
+#include "version.h"
+#define APP_VERSION  L"" MDZY_VERSION
 #define WND_CLASS    L"mdzy_main_window"
 #define IDI_APP      101
 
@@ -272,8 +273,7 @@ typedef struct {
     Foot *foots; int nfoots, capfoots;
     Head *heads; int nheads, capheads;
     int open;               /* a paragraph is open (needs \par or \cell) */
-    size_t saPos;           /* offset of the open paragraph's \sa digits */
-    int firstInCell;
+    int pend;               /* vertical space (twips) owed before the next block */
     int nblocks;
     int depth;              /* list nesting */
     int mkOn, mkHang;       /* pending list marker */
@@ -1152,29 +1152,37 @@ static void code_hl(R *r, const char *s, int n, int cls) {
 
 /* ---- block-level output ---- */
 
+/* Vertical space between blocks is emitted as separate empty paragraphs of exact height
+ * (not \sb/\sa): RichEdit paints character highlights (inline code) over a line's
+ * space-before/after, which made code spans look like tall boxes. Spacing collapses like
+ * CSS margins: the gap is the larger of the previous block's "after" and the next "before". */
+static void spacer_line(R *r, int intbl, int tw, const char *end) {
+    bprintf(&r->out, "\\pard%s\\sb0\\sa0\\sl-%d\\plain\\fs2%s\n", intbl ? "\\intbl" : "", tw, end);
+}
+
 static void close_para(R *r) {
     if (r->open) { bputs(&r->out, "\\par\n"); r->open = 0; }
 }
 
-static void set_last_sa(R *r, int sa) {
-    if (!r->open || !r->saPos) return;
-    char tmp[8];
-    snprintf(tmp, sizeof tmp, "%05d", sa > 99999 ? 99999 : sa);
-    memcpy(r->out.p + r->saPos, tmp, 5);
+static void flush_space(R *r, Ctx *c, int before) {
+    int tw = r->pend > before ? r->pend : before;
+    r->pend = 0;
+    if (tw >= 20) spacer_line(r, c->intbl, tw, "\\par");
 }
+
+/* space requested after the current block */
+static void set_last_sa(R *r, int sa) { if (sa > r->pend) r->pend = sa; }
 
 static void para_begin(R *r, Ctx *c, int sb, int sa, int align) {
     Buf *o = &r->out;
-    if (r->open) bputs(o, "\\par\n");
+    close_para(r);
+    flush_space(r, c, sb);
+    r->pend = sa;
     bputs(o, "\\pard");
     if (c->intbl) bputs(o, "\\intbl");
-    if (r->firstInCell) { if (sb < r->B * 5) sb = r->B * 5; r->firstInCell = 0; }
-    bprintf(o, "\\li%d\\ri%d\\sb%d\\sl276\\slmult1", c->indent, c->intbl ? 0 : r->margin, sb);
+    bprintf(o, "\\li%d\\ri%d\\sb0\\sa0\\sl276\\slmult1", c->indent, c->intbl ? 0 : r->margin);
     if (align == 1) bputs(o, "\\qc");
     else if (align == 2) bputs(o, "\\qr");
-    bputs(o, "\\sa");
-    r->saPos = o->n;
-    bprintf(o, "%05d", sa);
     if (r->mkOn) bprintf(o, "\\fi-%d\\tx%d", r->mkHang, c->indent);
     bprintf(o, "\\plain\\f0\\fs%d\\cf%d ", r->B, (c->quote && !c->alert) ? C_MUTED : C_TEXT);
     if (r->mkOn) {
@@ -1195,10 +1203,17 @@ static void flush_marker(R *r, Ctx *c) {
     if (r->mkOn) para_begin(r, c, 0, r->B * 2, 0);
 }
 
-/* Tiny empty paragraph used as vertical space after table-based blocks. */
+/* Request vertical space after a block. */
 static void spacer(R *r, Ctx *c, int tw) {
+    (void)c;
     close_para(r);
-    bprintf(&r->out, "\\pard%s\\li%d\\sb0\\sa%d\\sl-20\\plain\\fs2\\par\n", c->intbl ? "\\intbl" : "", c->indent, tw);
+    set_last_sa(r, tw);
+}
+
+/* Start of a table-based block: close the paragraph and emit pending space. */
+static void block_start(R *r, Ctx *c) {
+    close_para(r);
+    flush_space(r, c, 0);
 }
 
 static void cell_borders(Buf *o, int top, int left, int bottom, int right, int tw) {
@@ -1210,7 +1225,7 @@ static void cell_borders(Buf *o, int top, int left, int bottom, int right, int t
 
 static void rule_row(R *r, Ctx *c, int thick) {
     Buf *o = &r->out;
-    close_para(r);
+    block_start(r, c);
     bprintf(o, "\\pard\\plain\\trowd\\trgaph0\\trleft%d", c->indent);
     cell_borders(o, C_BORDER, C_BG, C_BG, C_BG, thick);
     bprintf(o, "\\cellx%d\\pard\\intbl\\sb0\\sa0\\sl-20\\plain\\fs2\\cell\\row\n", r->W);
@@ -1295,7 +1310,7 @@ static void code_block(R *r, Ctx *c, Line *L, int n, const char *info, int in) {
         free(code.p);
         return;
     }
-    close_para(r);
+    block_start(r, c);
     bprintf(o, "\\pard\\plain\\trowd\\trgaph%d\\trleft%d", r->B * 8, c->indent);
     cell_borders(o, C_CODEBG, C_CODEBG, C_CODEBG, C_CODEBG, 10);
     bprintf(o, "\\clcbpat%d\\cellx%d", C_CODEBG, r->W);
@@ -1565,7 +1580,7 @@ static void quote_block(R *r, Ctx *c, Line *L, int n) {
         return;
     }
     int bar = alert ? C_NOTE + alert - 1 : C_QUOTE;
-    close_para(r);
+    block_start(r, c);
     bprintf(o, "\\pard\\plain\\trowd\\trgaph%d\\trleft%d", r->B * 10, c->indent);
     cell_borders(o, C_BG, bar, C_BG, C_BG, 60);
     bprintf(o, "\\cellx%d\n", r->W);
@@ -1575,7 +1590,7 @@ static void quote_block(R *r, Ctx *c, Line *L, int n) {
     k.quote = 1;
     k.tight = 0;
     k.alert = alert;
-    r->firstInCell = 1;
+    r->pend = r->B * 5;   /* top padding inside the cell */
     if (alert) {
         para_begin(r, &k, 0, r->B * 4, 0);
         bprintf(o, "{\\b\\cf%d ", bar);
@@ -1583,11 +1598,9 @@ static void quote_block(R *r, Ctx *c, Line *L, int n) {
         bprintf(o, "  %s}", titles[alert - 1]);
     }
     blocks(r, L + skipFirst, n - skipFirst, k);
-    if (!r->open) bputs(o, "\\pard\\intbl\\plain\\fs2 ");
-    else set_last_sa(r, r->B * 5);
-    bputs(o, "\\cell\\row\n");
-    r->open = 0;
-    r->firstInCell = 0;
+    close_para(r);
+    spacer_line(r, 1, r->B * 5, "\\cell\\row");   /* bottom padding doubles as the cell's last paragraph */
+    r->pend = 0;
     spacer(r, c, r->B * 10);
 }
 
@@ -1683,7 +1696,7 @@ static int table_block(R *r, Line *L, int n, int i, Ctx *c) {
             else w[k] = flex ? (int)(nat[k] * rest / flex) : minw;
         }
     }
-    close_para(r);
+    block_start(r, c);
     for (int rI = 0; rI < nrows; rI++) {
         bprintf(o, "\\pard\\plain\\trowd\\trgaph%d\\trleft%d", gap, c->indent);
         int x = c->indent;
@@ -1697,13 +1710,14 @@ static int table_block(R *r, Line *L, int n, int i, Ctx *c) {
         for (int k = 0; k < ncols; k++) {
             Cell *ce = &cells[(size_t)rI * ncols + k];
             char a = al[k];
-            bprintf(o, "\\pard\\intbl\\sb%d\\sa%d%s\\plain\\f0\\fs%d\\cf%d%s ",
-                    r->B * 4, r->B * 4, a == 'c' ? "\\qc" : a == 'r' ? "\\qr" : "", r->B, C_TEXT,
-                    rI == 0 ? "\\b" : "");
+            spacer_line(r, 1, r->B * 4, "\\par");   /* cell padding, see spacer_line() */
+            bprintf(o, "\\pard\\intbl\\sb0\\sa0%s\\plain\\f0\\fs%d\\cf%d%s ",
+                    a == 'c' ? "\\qc" : a == 'r' ? "\\qr" : "", r->B, C_TEXT, rI == 0 ? "\\b" : "");
             r->curIndent = c->indent;
             r->curInTbl = 1;
             cell_inline(r, ce->s, ce->n);
-            bputs(o, "\\cell");
+            bputs(o, "\\par\n");
+            spacer_line(r, 1, r->B * 4, "\\cell");
         }
         bputs(o, "\\row\n");
     }
@@ -2103,10 +2117,12 @@ static const WCHAR *g_devRtf;
 #endif
 
 static const char kHelpMd[] =
-    "# mdzy\n"
+    "# mdzy " MDZY_VERSION "\n"
     "\n"
-    "**A tiny, instant Markdown & text viewer.** Drop a `.md` or `.txt` file on this window, "
-    "or press **Ctrl+O**.\n"
+    "**mdzy** stands for **MD easy**: a tiny, instant Markdown & text viewer. Drop a `.md` or `.txt` file "
+    "on this window, or press **Ctrl+O**.\n"
+    "\n"
+    "<p align=\"center\"><a href=\"mdzy:register\">Open .md files with mdzy</a></p>\n"
     "\n"
     "## Keyboard\n"
     "\n"
@@ -2130,9 +2146,9 @@ static const char kHelpMd[] =
     "\n"
     "## File associations\n"
     "\n"
-    "Right-click > **File associations > Register** adds mdzy to *Open with* for `.md`, `.markdown` "
-    "and `.txt` (per-user, no admin rights needed). Windows then asks you to confirm the default app "
-    "in *Settings > Default apps*.\n"
+    "The button at the top of this page, or right-click > **File associations > Register**, adds mdzy "
+    "to *Open with* for `.md`, `.markdown` and `.txt` (per-user, no admin rights needed). Windows then "
+    "asks you to confirm the default app in *Settings > Default apps*.\n"
     "\n"
     "From a terminal: `mdzy.exe --register` or `mdzy.exe --unregister`.\n"
     "\n"
@@ -2149,7 +2165,7 @@ static const char kHelpMd[] =
     "\n"
     "---\n"
     "\n"
-    "mdzy " "1.0.0" " - <https://github.com/vladcherry/mdzy>\n";
+    "mdzy (MD easy) " MDZY_VERSION " - <https://github.com/vladcherry/mdzy>\n";
 
 /* ======================================================================
  * Settings
@@ -2353,8 +2369,10 @@ static void StreamIn(const void *p, size_t n, UINT fmt) {
 
 static void UpdateTitle(void) {
     WCHAR t[MAX_PATH * 2 + 64];
-    if (g_path[0]) swprintf(t, ARRAYSIZE(t), L"%ls%ls \x2014 mdzy", PathFindFileNameW(g_path), g_raw ? L" [source]" : L"");
-    else lstrcpyW(t, L"mdzy");
+    if (g_path[0])
+        swprintf(t, ARRAYSIZE(t), L"%ls%ls \x2014 mdzy " APP_VERSION, PathFindFileNameW(g_path), g_raw ? L" [source]" : L"");
+    else
+        lstrcpyW(t, L"mdzy " APP_VERSION L" \x2014 MD easy");
     SetWindowTextW(g_hMain, t);
 }
 
