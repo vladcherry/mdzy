@@ -279,7 +279,7 @@ typedef struct {
     int mkOn, mkHang;       /* pending list marker */
     unsigned mkCp;
     char mkTxt[16];
-    int inLink;
+    int inLink, btn;
     int curIndent, curInTbl;
     int margin;             /* page margin, twips (content spans margin..W) */
 } R;
@@ -451,9 +451,16 @@ static void link_open(R *r, const char *url, int un) {
     }
     /* The trailing space keeps the instruction different from the friendly text: RichEdit
      * restyles links whose text equals their URL with its own (theme-unaware) colors. */
-    bprintf(o, " \"}}{\\fldrslt{\\cf%d\\ul ", C_LINK);
+    if (starts_ci(url, un, "mdzy:"))   /* app command: drawn as a button */
+        bprintf(o, " \"}}{\\fldrslt{\\b\\cf%d\\highlight%d\\~\\~ ", C_BG, C_LINK);
+    else
+        bprintf(o, " \"}}{\\fldrslt{\\cf%d\\ul ", C_LINK);
+    r->btn = starts_ci(url, un, "mdzy:");
 }
-static void link_close(R *r) { bputs(&r->out, "}}}"); }
+static void link_close(R *r) {
+    bputs(&r->out, r->btn ? " \\~\\~}}}" : "}}}");
+    r->btn = 0;
+}
 
 static Ref *find_ref(R *r, const char *lab, int ln) {
     for (int i = 0; i < r->nrefs; i++) {
@@ -2625,6 +2632,13 @@ static void OpenLink(const WCHAR *url) {
         ScrollToAnchor(frag);
         free(frag);
         free(u8);
+        return;
+    }
+    if (!_wcsnicmp(url, L"mdzy:", 5)) {   /* in-document app commands, e.g. the README button */
+        if (!_wcsicmp(url + 5, L"register") &&
+            MessageBoxW(g_hMain, L"Register mdzy as a viewer for .md, .markdown and .txt files?",
+                        APP_NAME, MB_YESNO | MB_ICONQUESTION) == IDYES)
+            PostMessageW(g_hMain, WM_COMMAND, CMD_REGISTER, 0);
         return;
     }
     if (!_wcsnicmp(url, L"http://", 7) || !_wcsnicmp(url, L"https://", 8) || !_wcsnicmp(url, L"mailto:", 7) ||

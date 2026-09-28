@@ -1,4 +1,9 @@
 <p align="center">
+  <a href="mdzy:register">⚙ Open .md files with mdzy</a><br>
+  <sub>The button works when this README is opened in mdzy. Elsewhere, run <code>mdzy.exe --register</code>.</sub>
+</p>
+
+<p align="center">
   <img src="docs/icon.png" width="96" alt="mdzy">
 </p>
 
