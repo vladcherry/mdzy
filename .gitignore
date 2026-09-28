@@ -1,0 +1,7 @@
+build/
+*.obj
+*.o
+*.res
+*.pdb
+*.ilk
+mdzy.ini
